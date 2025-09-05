@@ -1,0 +1,1588 @@
+---
+title: "BFE"
+output: html_document
+date: "2025-08-15"
+---
+
+#Library
+
+```{r}
+library(readxl)
+library(dplyr)
+library(BiasFreeEnrich)
+library(tools)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(ggVennDiagram)
+library(patchwork)
+library(openxlsx)
+library(grid)
+```
+#Import
+```{r}
+
+library(readxl)
+folder <- getwd() # or use here::here() or rstudioapi for more precise location
+files <- list.files(path = folder, pattern = "\\.xlsx$", full.names = TRUE)
+data_list <- lapply(files, read_excel)
+
+
+
+
+
+folder_path <- "C:/Users/Osian/OneDrive - University of Tasmania/1 - PhD/13 - Proteomics paper (BFE)/July Jubilation/Almost done/Import"
+  excel_files <- list.files(path = folder_path, pattern = "\\.xlsx?$", full.names = TRUE)
+  
+  for (file in excel_files) {
+    file_name <- tools::file_path_sans_ext(basename(file))
+    var_name <- make.names(file_name)
+    assign(var_name, read_excel(file), envir = .GlobalEnv)
+  }
+  
+  
+#List of DEPs fron Yang et al. retrieved from Supplemental table S6 titled 'Summary of differentially expressed proteins in RCVS’ 
+Yang_Sig <- mmc6_250
+#List of DEPs fron Lin et al. retrieved from Supplemental table S2 titled 'ANOVA_significant_282 proteins’ 
+Lin_Sig <- Sup.Table.S2...ANOVA_significant_282.proteins
+```
+##Import related function 
+```{r}
+#Term conversion to keep the terms consistent between DAVID, STRING, Enrichr, and BFE
+
+#DAVID GOBP terms
+format_go_term_DAVID <- function(df, term_col = "Term") {
+  df[[term_col]] <- sapply(df[[term_col]], function(x) {
+    matches <- regmatches(x, regexec("^(GO:\\d+)~(.+)$", x))[[1]]
+    if (length(matches) == 3) {
+      go_id <- matches[2]
+      term <- matches[3]
+      term_cap <- tools::toTitleCase(term)
+      sprintf("%s (%s)", term_cap, go_id)
+    } else {
+      x
+    }
+  })
+  
+  return(df)
+}
+
+#DAVID KEGG terms
+format_kegg_term_DAVID <- function(df) {
+  df$Term <- sub("^[^:]+:", "", df$Term)
+  return(df)
+}
+
+#STRING GOBP terms
+format_GO_term_STRING <- function(df, term_col = "term description", id_col = "#term ID") {
+  capitalize_words <- function(s) {
+    sapply(strsplit(s, " "), function(x) {
+      paste(toupper(substring(x, 1,1)), substring(x, 2), sep="", collapse=" ")
+    })
+  }
+  df[[term_col]] <- paste0(
+    capitalize_words(df[[term_col]]),
+    " (",
+    df[[id_col]],
+    ")"
+  )
+  return(df)
+}
+```
+##Conversions 
+```{r}
+#Term conversion to keep the terms styling consistent between DAVID, STRING, Enrichr, and BFE
+#Liver 
+  #DAVID
+    #Convert names
+    Liver_DAVID_HPAlist_GOBP <- format_go_term_DAVID(Liver_DAVID_HPAlist_GOBP)
+    Liver_DAVID_HPAlist_KEGG <- format_kegg_term_DAVID(Liver_DAVID_HPAlist_KEGG)
+    Liver_DAVID_NoBG_GOBP <- format_go_term_DAVID(Liver_DAVID_NoBG_GOBP)
+    Liver_DAVID_NoBG_KEGG <- format_kegg_term_DAVID(Liver_DAVID_NoBG_KEGG)
+  
+  #STRING
+    #Convert names
+    Liver_STRING_HPAlist_GOBP <- format_GO_term_STRING(Liver_STRING_HPAlist_GOBP)
+    Liver_STRING_HPAlist_GOBP <- Liver_STRING_HPAlist_GOBP %>% rename(Term = `term description`)
+    Liver_STRING_NoBG_GOBP <- format_GO_term_STRING(Liver_STRING_NoBG_GOBP)
+    Liver_STRING_NoBG_GOBP <- Liver_STRING_NoBG_GOBP %>% rename(Term = `term description`)
+    Liver_STRING_HPAlist_KEGG <- Liver_STRING_HPAlist_KEGG %>% rename(Term = `term description`)
+    Liver_STRING_NoBG_KEGG <- Liver_STRING_NoBG_KEGG %>% rename(Term = `term description`)
+
+  #DAVID 
+    #Convert names
+    Liver_DAVID_BG_GOBP <- format_go_term_DAVID(Liver_DAVID_BG_GOBP)
+    Liver_DAVID_NoBG_GOBP <- format_go_term_DAVID(Liver_DAVID_NoBG_GOBP)
+    Liver_DAVID_BG_KEGG <- format_kegg_term_DAVID(Liver_DAVID_BG_KEGG)
+    Liver_DAVID_NoBG_KEGG <- format_kegg_term_DAVID(Liver_DAVID_NoBG_KEGG)
+    
+  #STRING
+    #Convert names
+    #Liver_STRING_BG_GOBP <- format_GO_term_STRING(Liver_STRING_BG_GOBP)
+      #This is an empty df
+    Liver_STRING_BG_GOBP <- Liver_STRING_BG_GOBP %>% rename(Term = `term description`)
+    Liver_STRING_BG_KEGG <- Liver_STRING_BG_KEGG %>% rename(Term = `term description`)
+
+#Yang et al.
+  #DAVID
+    #Convert names
+    Yang_DAVID_BG_GOBP <- format_go_term_DAVID(Yang_DAVID_BG_GOBP)
+    Yang_DAVID_NoBG_GOBP <- format_go_term_DAVID(Yang_DAVID_NoBG_GOBP)
+    Yang_DAVID_BG_KEGG <- format_kegg_term_DAVID(Yang_DAVID_BG_KEGG)
+    Yang_DAVID_NoBG_KEGG <- format_kegg_term_DAVID(Yang_DAVID_NoBG_KEGG)
+  
+  #STRING
+    #Convert names
+    #Yang_STRING_BG_GOBP <- format_GO_term_STRING(Yang_STRING_BG_GOBP)
+      #This is an empty df
+    Yang_STRING_BG_GOBP <- Yang_STRING_BG_GOBP %>% rename(Term = `term description`)
+    Yang_STRING_NoBG_GOBP <- format_GO_term_STRING(Yang_STRING_NoBG_GOBP)
+    Yang_STRING_NoBG_GOBP <- Yang_STRING_NoBG_GOBP %>% rename(Term = `term description`)
+    Yang_STRING_BG_KEGG <- Yang_STRING_BG_KEGG %>% rename(Term = `term description`)
+    Yang_STRING_NoBG_KEGG <- Yang_STRING_NoBG_KEGG %>% rename(Term = `term description`)
+    
+  #DAVID
+    #Convert names
+    YangReAn_DAVID_BG_GOBP <- format_go_term_DAVID(YangReAn_DAVID_BG_GOBP)
+    YangReAn_DAVID_NoBG_GOBP <- format_go_term_DAVID(YangReAn_DAVID_NoBG_GOBP)
+    YangReAn_DAVID_BG_KEGG <- format_kegg_term_DAVID(YangReAn_DAVID_BG_KEGG)
+    YangReAn_DAVID_NoBG_KEGG <- format_kegg_term_DAVID(YangReAn_DAVID_NoBG_KEGG)
+  
+  #STRING
+    #Convert names
+    #YangReAn_STRING_BG_GOBP <- format_GO_term_STRING(YangReAn_STRING_BG_GOBP)
+      #This is an empty df
+    YangReAn_STRING_BG_GOBP <- YangReAn_STRING_BG_GOBP %>% rename(Term = `term description`)
+    YangReAn_STRING_NoBG_GOBP <- format_GO_term_STRING(YangReAn_STRING_NoBG_GOBP)
+    YangReAn_STRING_NoBG_GOBP <- YangReAn_STRING_NoBG_GOBP %>% rename(Term = `term description`)
+    YangReAn_STRING_BG_KEGG <- YangReAn_STRING_BG_KEGG %>% rename(Term = `term description`)
+    YangReAn_STRING_NoBG_KEGG <- YangReAn_STRING_NoBG_KEGG %>% rename(Term = `term description`)
+    
+#Lin et al.
+  #DAVID
+    #Convert names
+    Lin_DAVID_BG_GOBP <- format_go_term_DAVID(Lin_DAVID_BG_GOBP)
+    Lin_DAVID_NoBG_GOBP <- format_go_term_DAVID(Lin_DAVID_NoBG_GOBP)
+    Lin_DAVID_BG_KEGG <- format_kegg_term_DAVID(Lin_DAVID_BG_KEGG)
+    Lin_DAVID_NoBG_KEGG <- format_kegg_term_DAVID(Lin_DAVID_NoBG_KEGG)
+  
+  #STRING
+    #Convert names
+    Lin_STRING_BG_GOBP <- format_GO_term_STRING(Lin_STRING_BG_GOBP)
+    Lin_STRING_BG_GOBP <- Lin_STRING_BG_GOBP %>% rename(Term = `term description`)
+    Lin_STRING_NoBG_GOBP <- format_GO_term_STRING(Lin_STRING_NoBG_GOBP)
+    Lin_STRING_NoBG_GOBP <- Lin_STRING_NoBG_GOBP %>% rename(Term = `term description`)
+    Lin_STRING_BG_KEGG <- Lin_STRING_BG_KEGG %>% rename(Term = `term description`)
+    Lin_STRING_NoBG_KEGG <- Lin_STRING_NoBG_KEGG %>% rename(Term = `term description`)
+    
+  #DAVID
+    #Convert names
+    LinReAn_DAVID_BG_GOBP <- format_go_term_DAVID(LinReAn_DAVID_BG_GOBP)
+    LinReAn_DAVID_NoBG_GOBP <- format_go_term_DAVID(LinReAn_DAVID_NoBG_GOBP)
+    LinReAn_DAVID_BG_KEGG <- format_kegg_term_DAVID(LinReAn_DAVID_BG_KEGG)
+    LinReAn_DAVID_NoBG_KEGG <- format_kegg_term_DAVID(LinReAn_DAVID_NoBG_KEGG)
+  
+  #STRING
+    #Convert names
+    LinReAn_STRING_BG_GOBP <- format_GO_term_STRING(LinReAn_STRING_BG_GOBP)
+    LinReAn_STRING_BG_GOBP <- LinReAn_STRING_BG_GOBP %>% rename(Term = `term description`)
+    LinReAn_STRING_NoBG_GOBP <- format_GO_term_STRING(LinReAn_STRING_NoBG_GOBP)
+    LinReAn_STRING_NoBG_GOBP <- LinReAn_STRING_NoBG_GOBP %>% rename(Term = `term description`)
+    LinReAn_STRING_BG_KEGG <- LinReAn_STRING_BG_KEGG %>% rename(Term = `term description`)
+    LinReAn_STRING_NoBG_KEGG <- LinReAn_STRING_NoBG_KEGG %>% rename(Term = `term description`)
+
+```
+#Statistical analysis of datasets
+##Liver Synthetic 
+```{r}
+#Data frame containing proteins determined as having a high expression within the Liver. 
+Liver_Ctrl <- High.Liver.expression.IHC.background
+
+#Function to generate p values for the synthetic liver data set consisting of proteins list as having High expression within the liver from the HPA IHC dataset 
+generate_pvalues <- function(dataframe, num_significant) {
+  #Use of set seed in order to "create" the same subset of significant proteins for reproducibility
+  set.seed(255)
+  
+  #Randomly sample rows for significant p-values
+  selected_rows <- sample(nrow(dataframe), num_significant)
+  dataframe$pvalue <- NA
+  
+  #<0.05 for selected amount
+  dataframe$pvalue[selected_rows] <- runif(num_significant, min = 0, max = 0.05)
+  
+  #>0.05 for remaining
+  remaining_rows <- setdiff(1:nrow(dataframe), selected_rows)
+  dataframe$pvalue[remaining_rows] <- runif(length(remaining_rows), min = 0.05, max = 1)
+  
+  return(dataframe)  
+}
+
+
+#Use generate_pvalues function to assign p-values: 200 genes with p < 0.05
+  Liver_Ctrl <- generate_pvalues(Liver_Ctrl, 200)
+  
+#The Liver Sig list only 
+  Liver_Sig <- Liver_Ctrl[Liver_Ctrl$pvalue < 0.05, ]
+  
+
+```
+##Yang et al. 
+```{r}
+#Control sample background for Yang et al.
+  #Filtering for being in more than 70% of either control or patient as this was the cut off outlined in Yang et al.'s paper 
+  #Yang_Ctrl_Complete_915 contains gene names that were missing from Yang et al.'s paper. 
+  Yang_Ctrl <- Yang_Ctrl_Complete_915
+  
+  Control_list <- 3:22
+  RCVS_list <- 23:39
+  
+  # Define threshold (>70%)
+  threshold <- 0.7
+  #Filter code
+  filtered_df <- Yang_Ctrl %>%
+    rowwise() %>%
+    filter(
+      mean(!is.na(c_across(Control_list))) > threshold |  
+      mean(!is.na(c_across(RCVS_list))) > threshold     
+    ) %>%
+    ungroup()
+  
+  
+  Yang_Ctrl <- filtered_df
+
+#Significance testing 
+  #Due to lack of enrichment when a background correction was applied regardless of enrichment tool used we have re-analysed (ReAn) the data from Yang et al.'s paper  
+  YangReAn_Sig <- Yang_Ctrl
+  YangReAn_Sig$rawp<-1
+  group<- c(rep("control", length(Control_list)), rep("RCVS", length(RCVS_list)))
+  #group
+  for(i in 1:nrow(YangReAn_Sig)){
+      dat<-log(as.numeric(YangReAn_Sig[i, 3:39]))
+    YangReAn_Sig$rawp[i] <- wilcox.test(dat ~ group)$p.value
+    
+  }
+  YangReAn_Sig$padjust<-p.adjust(YangReAn_Sig$rawp, method= "fdr")
+  
+  
+  #YangReAn et al. used a  used a 0.01 p value cut off 
+  YangReAn_Sig <- data.frame(YangReAn_Sig[YangReAn_Sig$padjust<0.01,])
+```
+##Lin et al.
+```{r}
+#Control sample background for Lin et al.
+  #df edited to contain only the values of interest and re-ordered samples (G1:G18)
+  Lin_all <- ALL_2.119.proteins[, c(6:9, 135, 145:152, 136:144)]
+  
+  #Filter for 4/6 samples in each group as outlined in Lin et al.'s paper
+  #column ranges for each group
+  ctrl <- 5:10
+  day7 <- 11:16
+  day2 <- 17:22
+  #Replacing 0s with NA 
+  Lin_all[, 5:22] <- replace(Lin_all[, 5:22], Lin_all[, 5:22] == 0, NA)
+  #Filter code (≥3 non-NA values)
+  filtered_df <- Lin_all %>%
+    rowwise() %>%
+    filter(
+      sum(!is.na(c_across(ctrl))) >= 4 |  
+      sum(!is.na(c_across(day7))) >= 4 |  
+      sum(!is.na(c_across(day2))) >= 4       
+        ) %>%
+    ungroup()
+  
+  Lin_Ctrl <- filtered_df
+
+#Significance testing   
+  #As Yang et al.'s data required re-analysis we performed the equivalent testing for Lin et al.'s data following their described method. 
+  LinReAn_Sig <- Lin_Ctrl
+  
+  colgroups <- c(5:10, 11:16, 17:22)  
+  group_labels <- c(rep("ctrl", 6), rep("day7", 6), rep("day2", 6))
+  
+  LinReAn_Sig$combined_pvalue <- NA
+  
+  for(i in 1:nrow(LinReAn_Sig)){
+    dat <- as.numeric(LinReAn_Sig[i, colgroups])
+    group_factor <- factor(group_labels)
+    
+    # Remove NAs for the model
+    valid <- !is.na(dat)
+    dat <- dat[valid]
+    group_factor <- group_factor[valid]
+    
+    # Only run ANOVA if at least two groups have data
+    if(length(unique(group_factor)) > 1) {
+      LM1 <- lm(dat ~ group_factor)
+      aov_pvalue <- summary(aov(LM1))[[1]][["Pr(>F)"]][1]
+      LinReAn_Sig$combined_pvalue[i] <- aov_pvalue
+    } else {
+      LinReAn_Sig$combined_pvalue[i] <- NA
+    }
+  }
+  
+  LinReAn_Sig$combined_padj <- p.adjust(LinReAn_Sig$combined_pvalue, method = "fdr")
+  #Lin et al. used a  used a 0.05 p value cut off 
+  LinReAn_Sig <- LinReAn_Sig[!is.na(LinReAn_Sig$combined_padj) & LinReAn_Sig$combined_padj < 0.05, ]
+```
+#Fig. 2 - Difference in terms retrieved when using different enrichment tools
+##Fig. 2 related functions  
+```{r}
+#Venn diagram function that displays the overlap and indicates which terms are found in which data frames
+venn_diagram <- function(dataframes, columns, labels, title = NULL, subtitle = NULL, show_plot = TRUE, save_as_svg = FALSE, svg_filename = "venn_diagram.svg", show_overlap = TRUE) {
+  if (length(labels) != length(dataframes)) {
+    stop("The number of labels must match the number of dataframes.")
+  }
+  
+  venn_list <- list()
+  
+  for (i in seq_along(dataframes)) {
+    df_name <- dataframes[i]
+    col_name <- columns[i]
+    df <- get(df_name)
+    
+    
+    if (nrow(df) > 0 && col_name %in% colnames(df)) {
+      terms <- as.character(df[[col_name]])
+    } else {
+      terms <- character(0) 
+    }
+    venn_list[[labels[i]]] <- terms
+  }
+  
+  plot <- ggVennDiagram(venn_list, label_percent_digit = 1) +
+    labs(title = title, subtitle = subtitle) +
+    theme(legend.position = "right") +
+    scale_x_continuous(expand = expansion(mult = .5)) + 
+    scale_fill_distiller(palette = "RdBu", direction = -1)
+  
+  if (show_plot) print(plot)
+  if (save_as_svg) ggsave(svg_filename, plot = plot, device = "svg")
+  
+  if (show_overlap) {
+    all_overlap <- Reduce(intersect, venn_list)
+    unique_terms <- list()
+    for (i in seq_along(venn_list)) {
+      unique_terms[[labels[i]]] <- setdiff(venn_list[[i]], unlist(venn_list[-i]))
+    }
+    
+    cat("\nTerms overlapping in all dataframes:\n")
+    if (length(all_overlap) > 0) {
+      cat(paste(all_overlap, collapse = ", "), "\n")
+    } else {
+      cat("No terms overlap in all dataframes.\n")
+    }
+    cat("\nUnique terms in each dataframe:\n")
+    for (name in names(unique_terms)) {
+      cat("\n", name, ":\n")
+      if (length(unique_terms[[name]]) > 0) {
+        cat(paste(unique_terms[[name]], collapse = ", "), "\n")
+      } else {
+        cat("No unique terms.\n")
+      }
+    }
+  }
+  
+  return(plot)
+}
+```
+##Fig. 2 items
+```{r}
+#Comparing what terms are returned when using base Enrichr, DAVID, and STRING on our synthetic liver data frame and published DEPs from Yang et al. and Lin et al. papers. This data is displayed in Fig. 2. 
+
+#Using baseline Enrichr on the synthetic liver dataframe and published DEPs from Yang et al. and Lin et al. Filtered to only include terms associated with at least 2 genes.       
+  selected_dbs <- c("GO_Biological_Process_2023", "KEGG_2021_Human")
+  #Synthetic liver dataframe
+  Liver_enrichr_NoBG <- enrichr(Liver_Sig$genename, selected_dbs)
+  Liver_enrichr_NoBG_KEGG <- Liver_enrichr_NoBG[["KEGG_2021_Human"]]
+  Liver_enrichr_NoBG_KEGG <- Liver_enrichr_NoBG_KEGG[sapply(strsplit(as.character(Liver_enrichr_NoBG_KEGG$Genes), ";"), length) >= 2,]
+  Liver_enrichr_NoBG_GOBP <- Liver_enrichr_NoBG[["GO_Biological_Process_2023"]]  
+  Liver_enrichr_NoBG_GOBP <- Liver_enrichr_NoBG_GOBP[sapply(strsplit(as.character(Liver_enrichr_NoBG_GOBP$Genes), ";"), length) >= 2,]
+    
+  #Yang et al.
+  Yang_enrichr_NoBG <- enrichr(Yang_Sig$Gene, selected_dbs)
+  Yang_enrichr_NoBG_KEGG <- Yang_enrichr_NoBG[["KEGG_2021_Human"]]
+  Yang_enrichr_NoBG_KEGG <- Yang_enrichr_NoBG_KEGG[sapply(strsplit(as.character(Yang_enrichr_NoBG_KEGG$Genes), ";"), length) >= 2,]
+  Yang_enrichr_NoBG_GOBP <- Yang_enrichr_NoBG[["GO_Biological_Process_2023"]]  
+  Yang_enrichr_NoBG_GOBP <- Yang_enrichr_NoBG_GOBP[sapply(strsplit(as.character(Yang_enrichr_NoBG_GOBP$Genes), ";"), length) >= 2,]
+  
+  #Lin et al.
+  Lin_enrichr_NoBG <- enrichr(Lin_Sig$`T: Gene Name`, selected_dbs)
+  Lin_enrichr_NoBG_KEGG <- Lin_enrichr_NoBG[["KEGG_2021_Human"]]
+  Lin_enrichr_NoBG_KEGG <- Lin_enrichr_NoBG_KEGG[sapply(strsplit(as.character(Lin_enrichr_NoBG_KEGG$Genes), ";"), length) >= 2,]
+  Lin_enrichr_NoBG_GOBP <- Lin_enrichr_NoBG[["GO_Biological_Process_2023"]]
+  Lin_enrichr_NoBG_GOBP <- Lin_enrichr_NoBG_GOBP[sapply(strsplit(as.character(Lin_enrichr_NoBG_GOBP$Genes), ";"), length) >= 2,]
+
+#Visualisations 
+#Liver 200 list
+  df1 <- Liver_STRING_NoBG_GOBP[Liver_STRING_NoBG_GOBP$`false discovery rate` <0.05,]
+  df2 <- Liver_DAVID_NoBG_GOBP[Liver_DAVID_NoBG_GOBP$FDR<0.05,]
+  df3 <- Liver_enrichr_NoBG_GOBP[Liver_enrichr_NoBG_GOBP$Adjusted.P.value<0.05,]
+  
+  df <- venn_diagram(
+          dataframes = c("df1", "df2", "df3"),
+          columns = c("Term", "Term", "Term"),
+          labels = c("STRING", "DAVID", "Enrichr"),
+          title = "Liver",
+          subtitle = "Overlap of GOBP",
+          show_plot = TRUE,        
+          save_as_svg = F,      
+          svg_filename = "df" 
+        )
+  
+  df1 <- Liver_STRING_NoBG_KEGG[Liver_STRING_NoBG_KEGG$`false discovery rate` <0.05,]
+  df2 <- Liver_DAVID_NoBG_KEGG[Liver_DAVID_NoBG_KEGG$FDR<0.05,]
+  df3 <- Liver_enrichr_NoBG_KEGG[Liver_enrichr_NoBG_KEGG$Adjusted.P.value<0.05,]
+  
+  df <- venn_diagram(
+          dataframes = c("df1", "df2", "df3"),
+          columns = c("Term", "Term", "Term"),
+          labels = c("STRING", "DAVID", "Enrichr"),
+          title = "Liver",
+          subtitle = "Overlap of KEGG",
+          show_plot = TRUE,        
+          save_as_svg = F,      
+          svg_filename = "df" 
+        )
+
+#Yang 
+  df1 <- Yang_STRING_NoBG_GOBP[Yang_STRING_NoBG_GOBP$`false discovery rate` <0.05,]
+  df2 <- Yang_DAVID_NoBG_GOBP[Yang_DAVID_NoBG_GOBP$FDR<0.05,]
+  df3 <- Yang_enrichr_NoBG_GOBP[Yang_enrichr_NoBG_GOBP$Adjusted.P.value<0.05,]
+  
+  df <- venn_diagram(
+          dataframes = c("df1", "df2", "df3"),
+          columns = c("Term", "Term", "Term"),
+          labels = c("STRING", "DAVID", "Enrichr"),
+          title = "Yang et al.",
+          subtitle = "Overlap of GOBP",
+          show_plot = TRUE,        
+          save_as_svg = F,      
+          svg_filename = "df" 
+        )
+  
+  df1 <- Yang_STRING_NoBG_KEGG[Yang_STRING_NoBG_KEGG$`false discovery rate` <0.05,]
+  df2 <- Yang_DAVID_NoBG_KEGG[Yang_DAVID_NoBG_KEGG$FDR<0.05,]
+  df3 <- Yang_enrichr_NoBG_KEGG[Yang_enrichr_NoBG_KEGG$Adjusted.P.value<0.05,]
+  
+  df <- venn_diagram(
+          dataframes = c("df1", "df2", "df3"),
+          columns = c("Term", "Term", "Term"),
+          labels = c("STRING", "DAVID", "Enrichr"),
+          title = "Yang et al.",
+          subtitle = "Overlap of KEGG",
+          show_plot = TRUE,        
+          save_as_svg = F,      
+          svg_filename = "df" 
+        )
+  
+#Lin 
+  df1 <- Lin_STRING_NoBG_GOBP[Lin_STRING_NoBG_GOBP$`false discovery rate` <0.05,]
+  df2 <- Lin_DAVID_NoBG_GOBP[Lin_DAVID_NoBG_GOBP$FDR<0.05,]
+  df3 <- Lin_enrichr_NoBG_GOBP[Lin_enrichr_NoBG_GOBP$Adjusted.P.value<0.05,]
+  
+  df <- venn_diagram(
+          dataframes = c("df1", "df2", "df3"),
+          columns = c("Term", "Term", "Term"),
+          labels = c("STRING", "DAVID", "Enrichr"),
+          title = "Lin et al.",
+          subtitle = "Overlap of GOBP",
+          show_plot = TRUE,        
+          save_as_svg = F,      
+          svg_filename = "df" 
+        ) 
+  
+  df1 <- Lin_STRING_NoBG_KEGG[Lin_STRING_NoBG_KEGG$`false discovery rate` <0.05,]
+  df2 <- Lin_DAVID_NoBG_KEGG[Lin_DAVID_NoBG_KEGG$FDR<0.05,]
+  df3 <- Lin_enrichr_NoBG_KEGG[Lin_enrichr_NoBG_KEGG$Adjusted.P.value<0.05,]
+  
+  df <- venn_diagram(
+          dataframes = c("df1", "df2", "df3"),
+          columns = c("Term", "Term", "Term"),
+          labels = c("STRING", "DAVID", "Enrichr"),
+          title = "Lin et al.",
+          subtitle = "Overlap of KEGG",
+          show_plot = TRUE,        
+          save_as_svg = F,      
+          svg_filename = "df" 
+        )
+  
+ 
+```
+#Fig. 3 - Enrichment without background correction will return sample specific terms
+##Fig. 3 related functions
+```{r}
+#This is a modified version of the tornado plot function used for Fig. 4 that instead graphs based on the most significant term found in the List_Nobackground data frame. It also uses a different colour scheme to be paired with the venn diagrams
+TorPlotRev <- function(List_Background, List_Nobackground, save_svg = F, output_file = "TornadoPlot.svg") {
+  # Utility to select the first matching column name
+  select_pval_col <- function(df, candidates) {
+    cols <- colnames(df)
+    found <- intersect(candidates, cols)
+    if (length(found) == 0) {
+      stop(sprintf("None of these columns found: %s", paste(candidates, collapse = ", ")))
+    }
+    found[1]
+  }
+  
+  # Select proper FDR columns
+  bg_candidates <- c("FDR", "false discovery rate", "Adjusted.P.value", "P_value_background_adjusted_CHEN_FDR")
+  nobg_candidates <- c("FDR", "false discovery rate", "Adjusted.P.value", "P_value_BH_FDR")
+  bg_col <- select_pval_col(List_Background, bg_candidates)
+  nobg_col <- select_pval_col(List_Nobackground, nobg_candidates)
+  
+  # Rename to avoid collision if same name
+  if (bg_col == nobg_col) {
+    List_Background <- List_Background %>%
+      dplyr::rename(FDR_background = !!bg_col)
+    bg_col <- "FDR_background"
+  }
+
+  # significance cutoff
+  significance_threshold <- -log10(0.05)
+  empty_background <- nrow(List_Background) == 0
+  
+  # Handle empty background
+  if (empty_background) {
+    List_Background <- List_Nobackground %>%
+      dplyr::select(Term) %>%
+      dplyr::mutate(
+        !!bg_col := NA,
+        Background = "Background_adjusted"
+      )
+  }
+  
+  # Add dataset labels
+  List_Nobackground$Background <- "Whole_genome"
+  List_Background$Background <- "Background_adjusted"
+  
+  # Combine
+  Combined_List <- dplyr::full_join(List_Background, List_Nobackground, by = "Term")
+  
+  has_bg_one <- any(List_Background[[bg_col]] == 1, na.rm = TRUE)
+  
+  if (has_bg_one) {
+    # top terms based on nobg_col
+    top_terms <- List_Nobackground %>%
+      dplyr::arrange(.data[[nobg_col]]) %>%
+      dplyr::slice_head(n = 10) %>%
+      dplyr::select(Term, any_of(nobg_col))
+    
+    top10 <- top_terms %>%
+      left_join(
+        List_Background %>%
+          dplyr::select(Term, any_of(bg_col)),
+        by = "Term"
+      ) %>%
+      dplyr::select(Term, all_of(bg_col), all_of(nobg_col))
+      
+  } else {
+    top10 <- Combined_List %>%
+      dplyr::arrange(.data[[nobg_col]]) %>%
+      dplyr::slice_head(n = 10) %>%
+      dplyr::select(Term, all_of(bg_col), all_of(nobg_col))
+  }
+  
+  # Wrap and factor labels
+  top10$Term <- str_wrap(top10$Term, width = 35)
+  top10$Term <- factor(top10$Term, levels = rev(top10$Term))
+  
+  # Pivot to long format for plotting
+  temp_top10_long <- top10 %>%
+    tidyr::pivot_longer(
+      cols = c(all_of(bg_col), all_of(nobg_col)),
+      names_to = "Background",
+      values_to = "FDR"
+    ) %>%
+    dplyr::mutate(FDR_num = as.numeric(FDR))
+  
+  # y-axis scaling
+  any_significant <- any(temp_top10_long$FDR_num <= 0.05 & !is.na(temp_top10_long$FDR_num))
+  if (!any_significant) {
+    max_log10 <- significance_threshold
+    zero_log10 <- significance_threshold * 1.2
+  } else {
+    valid_log10 <- -log10(temp_top10_long$FDR_num[!is.na(temp_top10_long$FDR_num) & 
+                                                 temp_top10_long$FDR_num > 0 & 
+                                                 temp_top10_long$FDR_num != 1])
+    max_log10 <- ifelse(length(valid_log10) > 0, max(valid_log10, na.rm = TRUE), 1)
+    zero_log10 <- max_log10 * 1.2
+  }
+  
+  top10_long <- temp_top10_long %>%
+    dplyr::mutate(
+      Background = dplyr::recode(Background,
+                                 !!bg_col := "Background_adjusted",
+                                 !!nobg_col := "Whole_genome"),
+      FDR_num = as.numeric(FDR)
+    ) %>%
+    tidyr::complete(Term, Background) %>%
+    dplyr::mutate(
+      is_zero = !is.na(FDR_num) & FDR_num == 0,
+      is_one = !is.na(FDR_num) & FDR_num == 1,
+      is_missing = is.na(FDR_num),
+      Background_plot = dplyr::case_when(
+        empty_background & Background == "Background_adjusted" ~ "No_Background_Data",
+        is_missing & Background == "Background_adjusted" ~ "Missing_Background",
+        is_missing & Background == "Whole_genome" ~ "Missing_Nobackground",
+        is_one & Background == "Background_adjusted" ~ "Zero_Background",
+        is_one & Background == "Whole_genome" ~ "Zero_Nobackground",
+        TRUE ~ Background
+      ),
+      log10 = dplyr::case_when(
+        is_missing ~ 0,
+        is_one ~ 0,
+        is_zero ~ zero_log10,
+        TRUE ~ -log10(FDR_num)
+      ),
+      nonsig_bg = (Background == "Background_adjusted") & (log10 < significance_threshold),
+      nonsig_nobg = (Background == "Whole_genome") & (log10 < significance_threshold),
+      fill_group = dplyr::case_when(
+        nonsig_bg ~ "nonsig_bg",
+        nonsig_nobg ~ "nonsig_nobg",
+        TRUE ~ as.character(Background_plot)
+      )
+    )
+  
+  # factor levels for plotting
+  top10_long$Background_plot <- factor(
+    top10_long$Background_plot,
+    levels = c(
+      "Whole_genome",
+      "Background_adjusted",
+      "No_Background_Data",
+      "Missing_Background",
+      "Missing_Nobackground",
+      "Zero_Background",
+      "Zero_Nobackground"
+    )
+  )
+  
+  present_levels <- as.character(unique(top10_long$Background_plot))
+  label_dict <- c(
+    "Whole_genome" = "Without background correction",
+    "Background_adjusted" = "With background correction",
+    "Missing_Background" = "Term not detected",
+    "Missing_Nobackground" = "Term not detected",
+    "Zero_Background" = "With background correction",
+    "Zero_Nobackground" = "Without background correction",
+    "No_Background_Data" = "Term not detected"
+  )
+  present_labels <- label_dict[present_levels]
+  names(present_labels) <- present_levels
+  
+  present_fill_groups <- unique(top10_long$fill_group)
+  fill_labels <- c(
+    "nonsig_bg" = "With background correction (below threshold)",
+    "nonsig_nobg" = "Without background correction (below threshold)",
+    present_labels
+  )
+  fill_labels <- fill_labels[present_fill_groups]
+  
+  y_axis_limit <- max(zero_log10, max_log10, significance_threshold + 0.1)
+  
+  # Plotting
+  plot <- ggplot(top10_long, aes(x = Term, y = log10, fill = fill_group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.9) +
+    scale_fill_manual(
+      values = c(
+        "nonsig_bg" = adjustcolor("#576CAB", alpha.f = 0.4),
+        "nonsig_nobg" = adjustcolor("#ED136F", alpha.f = 0.4),
+        "Background_adjusted" = "#576CAB",
+        "Whole_genome" = "#ED136F",
+        "Missing_Background" = adjustcolor("#576CAB", alpha.f = 0.4),
+        "Missing_Nobackground" = adjustcolor("#ED136F", alpha.f = 0.4),
+        "Zero_Background" = adjustcolor("#576CAB", alpha.f = 0.4),
+        "Zero_Nobackground" = adjustcolor("#ED136F", alpha.f = 0.4),
+        "No_Background_Data" = adjustcolor("#576CAB", alpha.f = 0.4)
+      ),
+      breaks = present_fill_groups,
+      labels = fill_labels
+    ) +
+    theme_classic() +
+    coord_flip() +
+    geom_hline(yintercept = significance_threshold, linetype = "dashed", color = "#4C5563", linewidth = 0.8) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, y_axis_limit)) +
+    theme(
+      axis.title.y = element_blank(),
+      axis.text.y = element_text(size = 7),
+      legend.title = element_blank(),
+      legend.position = "bottom",
+      plot.margin = margin(t = 10, r = 30, b = 10, l = 30, unit = "pt")
+    ) +
+    guides(fill = guide_legend(reverse = TRUE)) +
+    labs(y = expression(-log[10] * " FDR " * italic(p) * " value"))
+  
+  # Save SVG if requested
+  if (save_svg) {
+    n_terms <- length(unique(top10_long$Term))
+    height_per_term <- 0.7
+    ggsave(output_file, plot, width = 10, height = max(8, n_terms * height_per_term), dpi = 300)
+  }
+  
+  return(plot)
+}
+#Displays the tornado plots in a combined format
+grid_3x2 <- function(plots, filename, width = 12, height = 18, save_svg = FALSE) {
+  if (length(plots) != 6) stop("plots must be a list of 6 ggplot objects")
+  combined_plot <- (plots[[1]] | plots[[1]]) /
+                   (plots[[2]] | plots[[3]]) /
+                   (plots[[4]] | plots[[5]]) +
+    plot_layout(guides = "collect", axes = "collect") +
+    plot_annotation() &
+    theme(legend.position = "none")
+  
+  print(combined_plot)  # Show plot in RStudio
+  
+  if (save_svg) {
+    ggsave(filename, combined_plot, width = width, height = height, limitsize = FALSE)
+  }
+  
+  invisible(combined_plot)
+}
+```
+##Fig. 3 items
+```{r}
+#Importing results obtained when running the synthetic liver background data frame which contains HPA proteins with a high expression level (n =1238) through DAVID and STRING without a BG. This data is displayed in Fig. 3. 
+
+#Using baseline Enrichr on the n = 1238 synthetic liver HPA data frame        
+  selected_dbs <- c("GO_Biological_Process_2023", "KEGG_2021_Human")
+  #Synthetic liver dataframe
+  Liver_enrichr_HPAlist <- enrichr(Liver_Ctrl$genename, selected_dbs)
+  Liver_enrichr_HPAlist_KEGG <- Liver_enrichr_HPAlist[["KEGG_2021_Human"]]
+  Liver_enrichr_HPAlist_KEGG <- Liver_enrichr_HPAlist_KEGG[sapply(strsplit(as.character(Liver_enrichr_HPAlist_KEGG$Genes), ";"), length) >= 2,]
+  Liver_enrichr_HPAlist_GOBP <- Liver_enrichr_HPAlist[["GO_Biological_Process_2023"]] 
+  Liver_enrichr_HPAlist_GOBP <- Liver_enrichr_HPAlist_GOBP[sapply(strsplit(as.character(Liver_enrichr_HPAlist_GOBP$Genes), ";"), length) >= 2,]
+  
+Fig_3 <- list(
+  TorPlotRev(Liver_DAVID_NoBG_GOBP, Liver_DAVID_HPAlist_GOBP),
+  TorPlotRev(Liver_DAVID_NoBG_KEGG, Liver_DAVID_HPAlist_KEGG),
+  
+  TorPlotRev(Liver_STRING_NoBG_GOBP, Liver_STRING_HPAlist_GOBP),
+  TorPlotRev(Liver_STRING_NoBG_KEGG, Liver_STRING_HPAlist_KEGG),
+  
+  TorPlotRev(Liver_enrichr_NoBG_GOBP, Liver_enrichr_HPAlist_GOBP),
+  TorPlotRev(Liver_enrichr_NoBG_KEGG, Liver_enrichr_HPAlist_KEGG)
+)
+
+print(grid_3x2(Fig_3, "Fig_3.svg"))
+
+#Venn Diagrams for Fig. 3. 
+df1 <- Liver_DAVID_NoBG_GOBP[Liver_DAVID_NoBG_GOBP$FDR<0.05,]
+df2 <- Liver_DAVID_HPAlist_GOBP[Liver_DAVID_HPAlist_GOBP$FDR<0.05,]
+
+df <- venn_diagram(
+        dataframes = c("df1", "df2"),
+        columns = c("Term", "Term", "Term"),
+        labels = c("Terms from Sig", "Terms from Ctrl"),
+        title = "Liver DAVID",
+        subtitle = "Overlap of GOBP terms",
+        show_plot = TRUE,        
+        save_as_svg = F,      
+        svg_filename = "df" 
+      )
+df1 <- Liver_DAVID_NoBG_KEGG[Liver_DAVID_NoBG_KEGG$FDR<0.05,]
+df2 <- Liver_DAVID_HPAlist_KEGG[Liver_DAVID_HPAlist_KEGG$FDR<0.05,]
+
+df <- venn_diagram(
+        dataframes = c("df1", "df2"),
+        columns = c("Term", "Term"),
+        labels = c("Terms from Sig", "Terms from Ctrl"),
+        title = "Liver DAVID",
+        subtitle = "Overlap of KEGG terms",
+        show_plot = TRUE,        
+        save_as_svg = F,      
+        svg_filename = "df" 
+      )
+
+df1 <- Liver_STRING_NoBG_GOBP[Liver_STRING_NoBG_GOBP$`false discovery rate`<0.05,]
+df2 <- Liver_STRING_HPAlist_GOBP[Liver_STRING_HPAlist_GOBP$`false discovery rate`<0.05,]
+
+df <- venn_diagram(
+        dataframes = c("df1", "df2"),
+        columns = c("Term", "Term", "Term"),
+        labels = c("Terms from Sig", "Terms from Ctrl"),
+        title = "Liver STRING",
+        subtitle = "Overlap of GOBP terms",
+        show_plot = TRUE,        
+        save_as_svg = F,      
+        svg_filename = "df" 
+      )
+
+df1 <- Liver_STRING_NoBG_KEGG[Liver_STRING_NoBG_KEGG$`false discovery rate`<0.05,]
+df2 <- Liver_STRING_HPAlist_KEGG[Liver_STRING_HPAlist_KEGG$`false discovery rate`<0.05,]
+
+
+df <- venn_diagram(
+        dataframes = c("df1", "df2"),
+        columns = c("Term", "Term", "Term"),
+        labels = c("Terms from Sig", "Terms from Ctrl"),
+        title = "Liver STRING",
+        subtitle = "Overlap of KEGG terms",
+        show_plot = TRUE,        
+        save_as_svg = F,      
+        svg_filename = "df" 
+      )
+
+df1 <- Liver_enrichr_NoBG_GOBP[Liver_enrichr_NoBG_GOBP$Adjusted.P.value<0.05,]
+df2 <- Liver_enrichr_HPAlist_GOBP[Liver_enrichr_HPAlist_GOBP$Adjusted.P.value<0.05,]
+
+df <- venn_diagram(
+        dataframes = c("df1", "df2"),
+        columns = c("Term", "Term", "Term"),
+        labels = c("Terms from Sig", "Terms from Ctrl"),
+        title = "Liver enrichr",
+        subtitle = "Overlap of GOBP terms",
+        show_plot = TRUE,        
+        save_as_svg = F,      
+        svg_filename = "df.svg" 
+      )
+
+df1 <- Liver_enrichr_NoBG_KEGG[Liver_enrichr_NoBG_KEGG$Adjusted.P.value<0.05,]
+df2 <- Liver_enrichr_HPAlist_KEGG[Liver_enrichr_HPAlist_KEGG$Adjusted.P.value<0.05,]
+
+
+df <- venn_diagram(
+        dataframes = c("df1", "df2"),
+        columns = c("Term", "Term", "Term"),
+        labels = c("Terms from Sig", "Terms from Ctrl"),
+        title = "Liver enrichr",
+        subtitle = "Overlap of KEGG terms",
+        show_plot = TRUE,        
+        save_as_svg = F,      
+        svg_filename = "df.svg" 
+      )
+```
+
+#Fig. 4 - BFE is an improved enrichment tool
+##Fig. 4 related functions
+```{r}
+#Tornado plot function which displays the top 10 terms as determined by significance in the background corrected (1st listed) data frame. This function is used in order to display the data found in Fig. 4.  
+TorPlot <- function(List_Background, List_Nobackground, save_svg = T, output_file = "TornadoPlot.svg") {
+  select_pval_col <- function(df, candidates) {
+    cols <- colnames(df)
+    found <- intersect(candidates, cols)
+    if (length(found) == 0) {
+      stop(sprintf("None of these columns found: %s", paste(candidates, collapse = ", ")))
+    }
+    found[1]
+  }
+  
+  #Select proper FDR columns
+  bg_candidates <- c("FDR", "false discovery rate", "Adjusted.P.value", "P_value_background_adjusted_CHEN_FDR")
+  nobg_candidates <- c("FDR", "false discovery rate", "Adjusted.P.value", "P_value_BH_FDR")
+  bg_col <- select_pval_col(List_Background, bg_candidates)
+  nobg_col <- select_pval_col(List_Nobackground, nobg_candidates)
+  
+  #Rename if same
+  if (bg_col == nobg_col) {
+    List_Background <- List_Background %>%
+      dplyr::rename(FDR_background = !!bg_col)
+    bg_col <- "FDR_background"
+  }
+  
+  #Set parameters
+  significance_threshold <- -log10(0.05)
+  empty_background <- nrow(List_Background) == 0
+  
+  #Handle empty backgrounds
+  if (empty_background) {
+    List_Background <- List_Nobackground %>%
+      dplyr::select(Term) %>%
+      dplyr::mutate(
+        !!bg_col := NA,
+        Background = "Background_adjusted"
+      )
+  }
+  
+  #Set background labels
+  List_Nobackground$Background <- "Whole_genome"
+  List_Background$Background <- "Background_adjusted"
+  
+  Combined_List <- dplyr::full_join(List_Background, List_Nobackground, by = "Term")
+  
+  has_bg_one <- any(List_Background[[bg_col]] == 1, na.rm = TRUE)
+  
+  if (has_bg_one) {
+    top_terms <- List_Nobackground %>%
+      dplyr::arrange(.data[[nobg_col]]) %>%
+      dplyr::slice_head(n = 10) %>%
+      dplyr::select(Term, any_of(nobg_col))
+    
+    top10 <- top_terms %>%
+      left_join(
+        List_Background %>%
+          dplyr::select(Term, any_of(bg_col)),
+        by = "Term"
+      ) %>%
+      dplyr::select(Term, all_of(bg_col), all_of(nobg_col))
+      
+  } else {
+    top10 <- Combined_List %>%
+      dplyr::arrange(.data[[bg_col]]) %>%
+      dplyr::slice_head(n = 10) %>%
+      dplyr::select(Term, all_of(bg_col), all_of(nobg_col))
+  }
+  
+  #Wrap labels
+  top10$Term <- str_wrap(top10$Term, width = 35)
+  top10$Term <- factor(top10$Term, levels = rev(top10$Term))
+  
+  temp_top10_long <- top10 %>%
+    tidyr::pivot_longer(
+      cols = c(all_of(bg_col), all_of(nobg_col)),
+      names_to = "Background",
+      values_to = "FDR"
+    ) %>%
+    dplyr::mutate(FDR_num = as.numeric(FDR))
+  
+  any_significant <- any(temp_top10_long$FDR_num <= 0.05 & !is.na(temp_top10_long$FDR_num))
+  
+  if (!any_significant) {
+    max_log10 <- significance_threshold
+    zero_log10 <- significance_threshold * 1.2
+  } else {
+    valid_log10 <- -log10(temp_top10_long$FDR_num[!is.na(temp_top10_long$FDR_num) & 
+                                                 temp_top10_long$FDR_num > 0 & 
+                                                 temp_top10_long$FDR_num != 1])
+    max_log10 <- ifelse(length(valid_log10) > 0, max(valid_log10, na.rm = TRUE), 1)
+    zero_log10 <- max_log10 * 1.2
+  }
+  
+  top10_long <- temp_top10_long %>%
+    dplyr::mutate(
+      Background = dplyr::recode(Background,
+                                 !!bg_col := "Background_adjusted",
+                                 !!nobg_col := "Whole_genome"),
+      FDR_num = as.numeric(FDR)
+    ) %>%
+    tidyr::complete(Term, Background) %>%
+    dplyr::mutate(
+      is_zero = !is.na(FDR_num) & FDR_num == 0,
+      is_one = !is.na(FDR_num) & FDR_num == 1,
+      is_missing = is.na(FDR_num),
+      Background_plot = dplyr::case_when(
+        empty_background & Background == "Background_adjusted" ~ "No_Background_Data",
+        is_missing & Background == "Background_adjusted" ~ "Missing_Background",
+        is_missing & Background == "Whole_genome" ~ "Missing_Nobackground",
+        is_one & Background == "Background_adjusted" ~ "Zero_Background",
+        is_one & Background == "Whole_genome" ~ "Zero_Nobackground",
+        TRUE ~ Background
+      ),
+      log10 = dplyr::case_when(
+        is_missing ~ 0,
+        is_one ~ 0,
+        is_zero ~ zero_log10,
+        TRUE ~ -log10(FDR_num)
+      ),
+      nonsig_bg = (Background == "Background_adjusted") & (log10 < significance_threshold),
+      nonsig_nobg = (Background == "Whole_genome") & (log10 < significance_threshold),
+      fill_group = dplyr::case_when(
+        nonsig_bg ~ "nonsig_bg",
+        nonsig_nobg ~ "nonsig_nobg",
+        TRUE ~ as.character(Background_plot)
+      )
+    )
+  
+  top10_long$Background_plot <- factor(
+    top10_long$Background_plot,
+    levels = c(
+      "Whole_genome",
+      "Background_adjusted",
+      "No_Background_Data",
+      "Missing_Background",
+      "Missing_Nobackground",
+      "Zero_Background",
+      "Zero_Nobackground"
+    )
+  )
+  
+  present_levels <- as.character(unique(top10_long$Background_plot))
+  
+  label_dict <- c(
+    "Whole_genome" = "Without background correction",
+    "Background_adjusted" = "With background correction",
+    "Missing_Background" = "Term not detected",
+    "Missing_Nobackground" = "Term not detected",
+    "Zero_Background" = "With background correction",
+    "Zero_Nobackground" = "Without background correction",
+    "No_Background_Data" = "Term not detected"
+  )
+  
+  present_labels <- label_dict[present_levels]
+  names(present_labels) <- present_levels
+  
+  present_fill_groups <- unique(top10_long$fill_group)
+  
+  fill_labels <- c(
+    "nonsig_bg" = "With background correction (below threshold)",
+    "nonsig_nobg" = "Without background correction (below threshold)",
+    present_labels
+  )
+  
+  fill_labels <- fill_labels[present_fill_groups]
+  
+  y_axis_limit <- max(zero_log10, max_log10, significance_threshold + 0.1)
+  
+  plot <- ggplot(top10_long, aes(x = Term, y = log10, fill = fill_group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.9) +
+    scale_fill_manual(
+      values = c(
+        "nonsig_bg" = adjustcolor("#fca106", alpha.f = 0.4),
+        "nonsig_nobg" = adjustcolor("#1a8e9c", alpha.f = 0.4),
+        "Background_adjusted" = "#fca106",
+        "Whole_genome" = "#1a8e9c",
+        "Missing_Background" = adjustcolor("#fca106", alpha.f = 0.4),
+        "Missing_Nobackground" = adjustcolor("#1a8e9c", alpha.f = 0.4),
+        "Zero_Background" = adjustcolor("#fca106", alpha.f = 0.4),
+        "Zero_Nobackground" = adjustcolor("#1a8e9c", alpha.f = 0.4),
+        "No_Background_Data" = adjustcolor("#fca106", alpha.f = 0.4)
+      ),
+      breaks = present_fill_groups,
+      labels = fill_labels
+    ) +
+    theme_classic() +
+    coord_flip() +
+    geom_hline(yintercept = significance_threshold, linetype = "dashed", color = "#4C5563", linewidth = 0.8) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, y_axis_limit)) +
+    theme(
+      axis.title.y = element_blank(),
+      axis.text.y = element_text(size = 7),
+      legend.title = element_blank(),
+      legend.position = "bottom",
+      plot.margin = margin(t = 10, r = 30, b = 10, l = 30, unit = "pt")
+    ) +
+    guides(fill = guide_legend(reverse = TRUE)) +
+    labs(y = expression(-log[10] * " FDR " * italic(p) * " value"))
+  
+  #Can Save only if save_svg is T
+  if (save_svg) {
+    n_terms <- length(unique(top10_long$Term))
+    height_per_term <- 0.7
+    ggsave(output_file, plot, width = 10, height = max(8, n_terms * height_per_term), dpi = 300)
+  }
+  
+  return(plot)
+}
+
+
+
+#For combined graphing with labels 
+tight_grey_box_label <- function(label, rot = 0, fontsize = 16, padding = unit(2, "mm")) {
+  tg <- textGrob(label, rot = rot, gp = gpar(fontsize = fontsize, fontface = "bold"))
+  box <- rectGrob(
+    width  = grobWidth(tg)  + padding * 2,
+    height = grobHeight(tg) + padding * 2,
+    gp = gpar(fill = "grey90", col = NA)
+  )
+  wrap_elements(panel = grobTree(box, tg))
+}
+
+custom_grey_box_row_label <- function(label, rot = 90, fontsize = 18, 
+                                      x = unit(0.9, "npc") - unit(2, "pt"), 
+                                      just = "center", padding = unit(2, "mm")) {
+  tg <- textGrob(label, rot = rot, gp = gpar(fontsize = fontsize, fontface = "bold"),
+                 x = x, just = just)
+  box <- rectGrob(
+    x = x,
+    y = tg$y,
+    just = c("center", "center"),
+    width = grobWidth(tg) + padding * 2,
+    height = grobHeight(tg) + padding * 2,
+    gp = gpar(fill = "grey90", col = NA)
+  )
+  wrap_elements(panel = grobTree(box, tg))
+}
+
+
+#Function to combine and save a 3x3 grid of plots with custom labels
+grid_3x3 <- function(plots, filename, width = 20, height = 50) {
+  #Column labels
+  col_label_STRING <- tight_grey_box_label("STRING", fontsize = 18)
+  col_label_DAVID  <- tight_grey_box_label("DAVID",  fontsize = 18)
+  col_label_BFE    <- tight_grey_box_label("BFE",    fontsize = 18)
+  col_labels <- (plot_spacer() | col_label_DAVID | col_label_STRING | col_label_BFE) + 
+    plot_layout(tag_level = "new")
+  #Row labels (rotated)
+  row_label_synth <- custom_grey_box_row_label("Synthetic")
+  row_label_yang  <- custom_grey_box_row_label("Yang et al.")
+  row_label_lin   <- custom_grey_box_row_label("Lin et al.")
+  #Combine plots with row labels as first column
+  plot_grid <- 
+    (row_label_synth | plots[[1]] | plots[[2]] | plots[[3]]) /
+    (row_label_yang  | plots[[4]] | plots[[5]] | plots[[6]]) /
+    (row_label_lin   | plots[[7]] | plots[[8]] | plots[[9]]) +
+    plot_layout(tag_level = "new")
+  #Combine everything
+  combined_plot <- col_labels / plot_grid +
+    plot_layout(
+      heights = c(0.07, 1, 1, 1), 
+      widths = c(0.09, 1, 1, 1), 
+      guides = "collect"
+    ) +
+    plot_annotation(tag_levels = 'A') &
+    theme(legend.position = "none",
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        plot.margin = margin(2, 2, 2, 2, "mm"))
+  #Save the combined plot
+  ggsave(filename, combined_plot, width = 12, height = 50, limitsize = FALSE)
+  invisible(combined_plot)
+}
+
+```
+##Synthetic Liver
+```{r}
+#BiasFreeEnrich (BFE)
+  set.seed(200)
+  #BG
+  Liver_BFE_BG <- BiasFreeEnrich(Liver_Sig$genename, Liver_Ctrl$genename, databases = c("GO_Biological_Process_2025", "KEGG_2021_Human"))
+  Liver_BFE_BG_GOBP <- Liver_BFE_BG$GO_Biological_Process_2025
+  Liver_BFE_BG_KEGG <- Liver_BFE_BG$KEGG_2021_Human
+  #No BG
+  Liver_BFE_NoBG <- BiasFreeEnrich(Liver_Sig$genename, databases = c("GO_Biological_Process_2025", "KEGG_2021_Human"))
+  Liver_BFE_NoBG_GOBP <- Liver_BFE_NoBG$GO_Biological_Process_2025
+  Liver_BFE_NoBG_GOBP <- Liver_BFE_NoBG_GOBP[sapply(strsplit(as.character(Liver_BFE_NoBG_GOBP$Significant_genes), ","), length) >= 2,]
+  Liver_BFE_NoBG_KEGG <- Liver_BFE_NoBG$KEGG_2021_Human
+  Liver_BFE_NoBG_KEGG <- Liver_BFE_NoBG_KEGG[sapply(strsplit(as.character(Liver_BFE_NoBG_KEGG$Significant_genes), ","), length) >= 2,]
+
+#Visualisations    
+  TorPlot(Liver_DAVID_BG_GOBP, Liver_DAVID_NoBG_GOBP, output_file = "Liver_DAVID_GOBP.svg")
+  TorPlot(Liver_STRING_BG_GOBP, Liver_STRING_NoBG_GOBP, output_file = "Liver_STRING_GOBP.svg")
+  TorPlot(Liver_BFE_BG_GOBP, Liver_BFE_NoBG_GOBP, output_file = "Liver_BFE_GOBP.svg")
+  
+  TorPlot(Liver_DAVID_BG_KEGG, Liver_DAVID_NoBG_KEGG, output_file = "Liver_DAVID_KEGG.svg")
+  TorPlot(Liver_STRING_BG_KEGG, Liver_STRING_NoBG_KEGG, output_file = "Liver_STRING_KEGG.svg")
+  TorPlot(Liver_BFE_BG_KEGG, Liver_BFE_NoBG_KEGG, output_file = "Liver_BFE_KEGG.svg") 
+  
+```
+##Enrichment using published DEPs
+###Yang et al.
+```{r}
+#List of DEPs fron Yang et al. retrieved from Supplemental table S6 titled 'Summary of differentially expressed proteins in RCVS’ 
+Yang_Sig <- mmc6_250
+  
+#BFE
+  set.seed(200)
+  #BG
+  Yang_BFE_BG <- BiasFreeEnrich(Yang_Sig$Gene, Yang_Ctrl$PG.Genes, databases = c("GO_Biological_Process_2025", "KEGG_2021_Human"))
+  Yang_BFE_BG_GOBP <- Yang_BFE_BG$GO_Biological_Process_2025
+  Yang_BFE_BG_KEGG <- Yang_BFE_BG$KEGG_2021_Human
+  #No BG
+  Yang_BFE_NoBG <- BiasFreeEnrich(Yang_Sig$Gene, databases = c("GO_Biological_Process_2025", "KEGG_2021_Human"))
+  Yang_BFE_NoBG_GOBP <- Yang_BFE_NoBG$GO_Biological_Process_2025
+  Yang_BFE_NoBG_GOBP <- Yang_BFE_NoBG_GOBP[sapply(strsplit(as.character(Yang_BFE_NoBG_GOBP$Significant_genes), ","), length) >= 2,]
+  Yang_BFE_NoBG_KEGG <- Yang_BFE_NoBG$KEGG_2021_Human
+  Yang_BFE_NoBG_KEGG <- Yang_BFE_NoBG_KEGG[sapply(strsplit(as.character(Yang_BFE_NoBG_KEGG$Significant_genes), ","), length) >= 2,]
+  
+#Visualisations    
+  TorPlot(Yang_DAVID_BG_GOBP, Yang_DAVID_NoBG_GOBP, output_file = "Yang_DAVID_GOBP.svg")
+  TorPlot(Yang_STRING_BG_GOBP, Yang_STRING_NoBG_GOBP, output_file = "Yang_STRING_GOBP.svg")
+  TorPlot(Yang_BFE_BG_GOBP, Yang_BFE_NoBG_GOBP, output_file = "Yang_BFE_GOBP.svg")
+  
+  TorPlot(Yang_DAVID_BG_KEGG, Yang_DAVID_NoBG_KEGG, output_file = "Yang_DAVID_KEGG.svg")
+  TorPlot(Yang_STRING_BG_KEGG, Yang_STRING_NoBG_KEGG, output_file = "Yang_STRING_KEGG.svg")
+  TorPlot(Yang_BFE_BG_KEGG, Yang_BFE_NoBG_KEGG, output_file = "Yang_BFE_KEGG.svg")
+```
+###Lin et al. 
+```{r}
+#List of DEPs fron Lin et al. retrieved from Supplemental table S2 titled 'ANOVA_significant_282 proteins’ 
+Lin_Sig <- Sup.Table.S2...ANOVA_significant_282.proteins
+
+#BFE
+  set.seed(200)
+  #BG
+  Lin_BFE_BG <- BiasFreeEnrich(Lin_Sig$`T: Gene Name`, Lin_Ctrl$`Gene Name`, databases = c("GO_Biological_Process_2025", "KEGG_2019_Mouse"))
+  Lin_BFE_BG_GOBP <- Lin_BFE_BG$GO_Biological_Process_2025
+  Lin_BFE_BG_KEGG <- Lin_BFE_BG$KEGG_2019_Mouse
+  #No BG
+  Lin_BFE_NoBG <- BiasFreeEnrich(Lin_Sig$`T: Gene Name`, databases = c("GO_Biological_Process_2025", "KEGG_2019_Mouse"))
+  Lin_BFE_NoBG_GOBP <- Lin_BFE_NoBG$GO_Biological_Process_2025
+  Lin_BFE_NoBG_GOBP <- Lin_BFE_NoBG_GOBP[sapply(strsplit(as.character(Lin_BFE_NoBG_GOBP$Significant_genes), ","), length) >= 2,]
+  Lin_BFE_NoBG_KEGG <- Lin_BFE_NoBG$KEGG_2019_Mouse
+  Lin_BFE_NoBG_KEGG <- Lin_BFE_NoBG_KEGG[sapply(strsplit(as.character(Lin_BFE_NoBG_KEGG$Significant_genes), ","), length) >= 2,]
+  
+#Visualisations  
+  TorPlot(Lin_DAVID_BG_GOBP, Lin_DAVID_NoBG_GOBP, output_file = "Lin_DAVID_GOBP.svg")
+  TorPlot(Lin_STRING_BG_GOBP, Lin_STRING_NoBG_GOBP, output_file = "Lin_STRING_GOBP.svg")
+  TorPlot(Lin_BFE_BG_GOBP, Lin_BFE_NoBG_GOBP, output_file = "Lin_BFE_GOBP.svg")
+  
+  TorPlot(Lin_DAVID_BG_KEGG, Lin_DAVID_NoBG_KEGG, output_file = "Lin_DAVID_KEGG.svg")
+  TorPlot(Lin_STRING_BG_KEGG, Lin_STRING_NoBG_KEGG, output_file = "Lin_STRING_KEGG.svg")
+  TorPlot(Lin_BFE_BG_KEGG, Lin_BFE_NoBG_KEGG, output_file = "Lin_BFE_KEGG.svg")
+```
+##Enrichment using re-analysed data and DEPs
+###Yang et al.
+```{r}
+#BFE
+  set.seed(200)
+  #BG
+  YangReAn_BFE_BG <- BiasFreeEnrich(YangReAn_Sig$PG.Genes, Yang_Ctrl$PG.Genes, databases = c("GO_Biological_Process_2025", "KEGG_2021_Human"))
+  YangReAn_BFE_BG_GOBP <- YangReAn_BFE_BG$GO_Biological_Process_2025
+  YangReAn_BFE_BG_KEGG <- YangReAn_BFE_BG$KEGG_2021_Human
+  #No BG
+  YangReAn_BFE_NoBG <- BiasFreeEnrich(YangReAn_Sig$PG.Genes, databases = c("GO_Biological_Process_2025", "KEGG_2021_Human"))
+  YangReAn_BFE_NoBG_GOBP <- YangReAn_BFE_NoBG$GO_Biological_Process_2025
+  YangReAn_BFE_NoBG_GOBP <- YangReAn_BFE_NoBG_GOBP[sapply(strsplit(as.character(YangReAn_BFE_NoBG_GOBP$Significant_genes), ","), length) >= 2,]
+  YangReAn_BFE_NoBG_KEGG <- YangReAn_BFE_NoBG$KEGG_2021_Human
+  YangReAn_BFE_NoBG_KEGG <- YangReAn_BFE_NoBG_KEGG[sapply(strsplit(as.character(YangReAn_BFE_NoBG_KEGG$Significant_genes), ","), length) >= 2,]
+  
+#Visualisations    
+  TorPlot(YangReAn_DAVID_BG_GOBP, YangReAn_DAVID_NoBG_GOBP)
+  TorPlot(YangReAn_STRING_BG_GOBP, YangReAn_STRING_NoBG_GOBP)
+  TorPlot(YangReAn_BFE_BG_GOBP, YangReAn_BFE_NoBG_GOBP)
+  
+  TorPlot(YangReAn_DAVID_BG_KEGG, YangReAn_DAVID_NoBG_KEGG)
+  TorPlot(YangReAn_STRING_BG_KEGG, YangReAn_STRING_NoBG_KEGG)
+  TorPlot(YangReAn_BFE_BG_KEGG, YangReAn_BFE_NoBG_KEGG)
+```
+###Lin et al. 
+```{r}
+#BFE
+  set.seed(200)
+  #BG
+  LinReAn_BFE_BG <- BiasFreeEnrich(LinReAn_Sig$`Gene Name`, Lin_Ctrl$`Gene Name`, databases = c("GO_Biological_Process_2025", "KEGG_2019_Mouse"))
+  LinReAn_BFE_BG_GOBP <- LinReAn_BFE_BG$GO_Biological_Process_2025
+  LinReAn_BFE_BG_KEGG <- LinReAn_BFE_BG$KEGG_2019_Mouse
+  #No BG
+  LinReAn_BFE_NoBG <- BiasFreeEnrich(LinReAn_Sig$`Gene Name`, databases = c("GO_Biological_Process_2025", "KEGG_2019_Mouse"))
+  LinReAn_BFE_NoBG_GOBP <- LinReAn_BFE_NoBG$GO_Biological_Process_2025
+  LinReAn_BFE_NoBG_GOBP <- LinReAn_BFE_NoBG_GOBP[sapply(strsplit(as.character(LinReAn_BFE_NoBG_GOBP$Significant_genes), ","), length) >= 2,]
+  LinReAn_BFE_NoBG_KEGG <- LinReAn_BFE_NoBG$KEGG_2019_Mouse
+  LinReAn_BFE_NoBG_KEGG <- LinReAn_BFE_NoBG_KEGG[sapply(strsplit(as.character(LinReAn_BFE_NoBG_KEGG$Significant_genes), ","), length) >= 2,]
+  
+#Visualisations  
+  TorPlot(LinReAn_DAVID_BG_GOBP, LinReAn_DAVID_NoBG_GOBP, output_file = "LinReAn_DAVID_GOBP.svg")
+  TorPlot(LinReAn_STRING_BG_GOBP, LinReAn_STRING_NoBG_GOBP, output_file = "LinReAn_STRING_GOBP.svg")
+  TorPlot(LinReAn_BFE_BG_GOBP, LinReAn_BFE_NoBG_GOBP, output_file = "LinReAn_BFE_GOBP.svg")
+  
+  TorPlot(LinReAn_DAVID_BG_KEGG, LinReAn_DAVID_NoBG_KEGG, output_file = "LinReAn_DAVID_KEGG.svg")
+  TorPlot(LinReAn_STRING_BG_KEGG, LinReAn_STRING_NoBG_KEGG, output_file = "LinReAn_STRING_KEGG.svg")
+  TorPlot(LinReAn_BFE_BG_KEGG, LinReAn_BFE_NoBG_KEGG, output_file = "LinReAn_BFE_KEGG.svg")
+```
+##Combined graphing for Fig. 4
+```{r}
+#Used for combined viewing of the terms displayed in Supplemental Fig. S2 and Fig. 4. Plots do not display well natively in R and are best viewed using the automatically saved .svg
+
+#Using the published DEPs by Yang et al. and Lin et al.
+Fig4GOBP_Theiranalysis <- list(
+  TorPlot(Liver_DAVID_BG_GOBP, Liver_DAVID_NoBG_GOBP, output_file = "Liver_DAVID_GOBP.svg"),
+  TorPlot(Liver_STRING_BG_GOBP, Liver_STRING_NoBG_GOBP, output_file = "Liver_STRING_GOBP.svg"),
+  TorPlot(Liver_BFE_BG_GOBP, Liver_BFE_NoBG_GOBP, output_file = "Liver_BFE_GOBP.svg"),
+  
+  TorPlot(Yang_DAVID_BG_GOBP, Yang_DAVID_NoBG_GOBP, output_file = "Yang_DAVID_GOBP.svg"),
+  TorPlot(Yang_STRING_BG_GOBP, Yang_STRING_NoBG_GOBP, output_file = "Yang_STRING_GOBP.svg"),
+  TorPlot(Yang_BFE_BG_GOBP, Yang_BFE_NoBG_GOBP, output_file = "Yang_BFE_GOBP.svg"),
+
+  TorPlot(Lin_DAVID_BG_GOBP, Lin_DAVID_NoBG_GOBP, output_file = "Lin_DAVID_GOBP.svg"),
+  TorPlot(Lin_STRING_BG_GOBP, Lin_STRING_NoBG_GOBP, output_file = "Lin_STRING_GOBP.svg"),
+  TorPlot(Lin_BFE_BG_GOBP, Lin_BFE_NoBG_GOBP, output_file = "Lin_BFE_GOBP.svg")
+)
+
+grid_3x3(Fig4GOBP_Theiranalysis, "Fig4GOBP_TheirAn.svg")
+
+
+Fig4KEGG_Theiranalysis <- list(
+  TorPlot(Liver_DAVID_BG_KEGG, Liver_DAVID_NoBG_KEGG, output_file = "Liver_DAVID_KEGG.svg"),
+  TorPlot(Liver_STRING_BG_KEGG, Liver_STRING_NoBG_KEGG, output_file = "Liver_STRING_KEGG.svg"),
+  TorPlot(Liver_BFE_BG_KEGG, Liver_BFE_NoBG_KEGG, output_file = "Liver_BFE_KEGG.svg"),
+  
+  TorPlot(Yang_DAVID_BG_KEGG, Yang_DAVID_NoBG_KEGG, output_file = "Yang_DAVID_KEGG.svg"),
+  TorPlot(Yang_STRING_BG_KEGG, Yang_STRING_NoBG_KEGG, output_file = "Yang_STRING_KEGG.svg"),
+  TorPlot(Yang_BFE_BG_KEGG, Yang_BFE_NoBG_KEGG, output_file = "Yang_BFE_KEGG.svg"),
+
+  TorPlot(Lin_DAVID_BG_KEGG, Lin_DAVID_NoBG_KEGG, output_file = "Lin_DAVID_KEGG.svg"),
+  TorPlot(Lin_STRING_BG_KEGG, Lin_STRING_NoBG_KEGG, output_file = "Lin_STRING_KEGG.svg"),
+  TorPlot(Lin_BFE_BG_KEGG, Lin_BFE_NoBG_KEGG, output_file = "Lin_BFE_KEGG.svg")
+)
+
+grid_3x3(Fig4KEGG_Theiranalysis, "Fig4KEGG_TheirAn.svg")
+
+#Using our re-analysed DEPs derived from Yang et al.'s and Lin et al.'s raw data.   
+Fig4GOBP_ReAn <- list(
+  TorPlot(Liver_DAVID_BG_GOBP, Liver_DAVID_NoBG_GOBP, output_file = "Liver_DAVID_GOBP.svg"),
+  TorPlot(Liver_STRING_BG_GOBP, Liver_STRING_NoBG_GOBP, output_file = "Liver_STRING_GOBP.svg"),
+  TorPlot(Liver_BFE_BG_GOBP, Liver_BFE_NoBG_GOBP, output_file = "Liver_BFE_GOBP.svg"),
+  
+  TorPlot(YangReAn_DAVID_BG_GOBP, YangReAn_DAVID_NoBG_GOBP, output_file = "YangReAn_DAVID_GOBP.svg"),
+  TorPlot(YangReAn_STRING_BG_GOBP, YangReAn_STRING_NoBG_GOBP, output_file = "YangReAn_STRING_GOBP.svg"),
+  TorPlot(YangReAn_BFE_BG_GOBP, YangReAn_BFE_NoBG_GOBP, output_file = "YangReAn_BFE_GOBP.svg"),
+
+  TorPlot(LinReAn_DAVID_BG_GOBP, LinReAn_DAVID_NoBG_GOBP, output_file = "LinReAn_DAVID_GOBP.svg"),
+  TorPlot(LinReAn_STRING_BG_GOBP, LinReAn_STRING_NoBG_GOBP, output_file = "LinReAn_STRING_GOBP.svg"),
+  TorPlot(LinReAn_BFE_BG_GOBP, LinReAn_BFE_NoBG_GOBP, output_file = "LinReAn_BFE_GOBP.svg")
+)
+
+grid_3x3(Fig4GOBP_ReAn, "Fig4GOBP_ReAn.svg")
+
+
+Fig4KEGG_ReAn <- list(
+  TorPlot(Liver_DAVID_BG_KEGG, Liver_DAVID_NoBG_KEGG, output_file = "Liver_DAVID_KEGG.svg"),
+  TorPlot(Liver_STRING_BG_KEGG, Liver_STRING_NoBG_KEGG, output_file = "Liver_STRING_KEGG.svg"),
+  TorPlot(Liver_BFE_BG_KEGG, Liver_BFE_NoBG_KEGG, output_file = "Liver_BFE_KEGG.svg"),
+  
+  TorPlot(YangReAn_DAVID_BG_KEGG, YangReAn_DAVID_NoBG_KEGG, output_file = "YangReAn_DAVID_KEGG.svg"),
+  TorPlot(YangReAn_STRING_BG_KEGG, YangReAn_STRING_NoBG_KEGG, output_file = "YangReAn_STRING_KEGG.svg"),
+  TorPlot(YangReAn_BFE_BG_KEGG, YangReAn_BFE_NoBG_KEGG, output_file = "YangReAn_BFE_KEGG.svg"),
+
+  TorPlot(LinReAn_DAVID_BG_KEGG, LinReAn_DAVID_NoBG_KEGG, output_file = "LinReAn_DAVID_KEGG.svg"),
+  TorPlot(LinReAn_STRING_BG_KEGG, LinReAn_STRING_NoBG_KEGG, output_file = "LinReAn_STRING_KEGG.svg"),
+  TorPlot(LinReAn_BFE_BG_KEGG, LinReAn_BFE_NoBG_KEGG, output_file = "LinReAn_BFE_KEGG.svg")
+)
+
+grid_3x3(Fig4KEGG_ReAn, "Fig4KEGG_ReAn.svg")
+
+
+```
+#Data frame export for supplemental tables 
+```{r}
+#Data frames relating to Supplemental table S1. Contains the DEPs uncovered by our re-analysis of Yang et al.'s and Lin et al.'s data and those artificially created using the Liver proteins tagged as having high expression by the HPA.  
+df1 <- Liver_Ctrl
+df2 <- Liver_Sig
+df3 <- Yang_Ctrl
+df4 <- YangReAn_Sig
+df5 <- Lin_Ctrl
+df6 <- LinReAn_Sig
+
+write.xlsx(
+  list(
+    "Liver_Ctrl" = df1,
+    "Liver_Sig" = df2,
+    "Yang_Ctrl" = df3,
+    "Yang_Sig"  = df4,
+    "Lin_Ctrl"  = df5,
+    "Lin_Sig"   = df6
+  ),
+  file = "SupTable1.xlsx"
+)
+
+
+#Data frames relating to Fig. 2 and Supplemental table S2
+df1 <- Liver_DAVID_NoBG_GOBP
+df2 <- Liver_STRING_NoBG_GOBP
+df3 <- Liver_enrichr_NoBG_GOBP
+df4 <- Liver_DAVID_NoBG_KEGG
+df5 <- Liver_STRING_NoBG_KEGG
+df6 <- Liver_enrichr_NoBG_KEGG
+
+df7 <- Yang_DAVID_NoBG_GOBP
+df8 <- Yang_STRING_NoBG_GOBP
+df9 <- Yang_enrichr_NoBG_GOBP
+df10 <- Yang_DAVID_NoBG_KEGG
+df11 <- Yang_STRING_NoBG_KEGG
+df12 <- Yang_enrichr_NoBG_KEGG
+
+df13 <- Lin_DAVID_NoBG_GOBP
+df14 <- Lin_STRING_NoBG_GOBP
+df15 <- Lin_enrichr_NoBG_GOBP
+df16 <- Lin_DAVID_NoBG_KEGG
+df17 <- Lin_STRING_NoBG_KEGG
+df18 <- Lin_enrichr_NoBG_KEGG
+
+
+write.xlsx(
+  list(
+    
+    "Liver_DAVID_noBG_GOBP"= df1,
+    "Liver_STRING_noBG_GOBP" = df2,
+    "Liver_Enrichr_noBG_GOBP"= df3,
+    "Liver_DAVID_noBG_KEGG"= df4,
+    "Liver_STRING_noBG_KEGG" = df5,
+    "Liver_Enrichr_noBG_KEGG"= df6,
+    
+    "Yang_DAVID_noBG_GOBP"= df7,
+    "Yang_STRING_noBG_GOBP" = df8,
+    "Yang_Enrichr_noBG_GOBP"= df9,
+    "Yang_DAVID_noBG_KEGG"= df10,
+    "Yang_STRING_noBG_KEGG" = df11,
+    "Yang_Enrichr_noBG_KEGG"= df12,
+    
+    "Lin_DAVID_noBG_GOBP"= df13,
+    "Lin_STRING_noBG_GOBP" = df14,
+    "Lin_Enrichr_noBG_GOBP"= df15,
+    "Lin_DAVID_noBG_KEGG"= df16,
+    "Lin_STRING_noBG_KEGG" = df17,
+    "Lin_Enrichr_noBG_KEGG"= df18
+  ),
+  file = "SupTable2.xlsx"
+)
+
+
+#Data frames related to Fig. 3 and Supplemental table S3. 
+df1 <- Liver_DAVID_HPAlist_GOBP
+df2 <- Liver_DAVID_NoBG_GOBP
+df3 <- Liver_STRING_HPAlist_GOBP
+df4 <- Liver_STRING_NoBG_GOBP
+df5 <- Liver_enrichr_HPAlist_GOBP
+df6 <- Liver_enrichr_NoBG_GOBP
+
+df7 <- Liver_DAVID_HPAlist_KEGG
+df8 <- Liver_DAVID_NoBG_KEGG
+df9 <- Liver_STRING_HPAlist_KEGG
+df10 <- Liver_STRING_NoBG_KEGG
+df11 <- Liver_enrichr_HPAlist_KEGG
+df12 <- Liver_enrichr_NoBG_KEGG
+
+write.xlsx(
+  list(
+    
+    "1238_Liver_DAVID_GOBP"= df1,
+    "200_Liver_DAVID_GOBP" = df2,
+    "1238_Liver_STRING_GOBP"= df3,
+    "200_Liver_STRING_GOBP" = df4,
+    "1238_Liver_Enrichr_GOBP"= df5,
+    "200_Liver_Enrichr_GOBP" = df6,
+    
+    "1238_Liver_DAVID_KEGG"= df7,
+    "200_Liver_DAVID_KEGG" = df8,
+    "1238_Liver_STRING_KEGG"= df9,
+    "200_Liver_STRING_KEGG" = df10,
+    "1238_Liver_Enrichr_KEGG"= df11,
+    "200_Liver_Enrichr_KEGG" = df12
+  ),
+  file = "SupTable3.xlsx"
+)
+
+
+#Data frames relating to Fig. 4 and Supplemental table S4. Results from using enrichment tools on the synthetic liver dataframes and our re-analysed versions of Yang et al.'s and Lin et al.'s DEPs.   
+df1  <- Liver_BFE_BG_GOBP
+df2  <- Liver_BFE_NoBG_GOBP
+df3  <- Liver_DAVID_BG_GOBP
+df4  <- Liver_DAVID_NoBG_GOBP
+df5  <- Liver_STRING_BG_GOBP
+df6  <- Liver_STRING_NoBG_GOBP
+df7  <- Liver_BFE_BG_KEGG
+df8  <- Liver_BFE_NoBG_KEGG
+df9  <- Liver_DAVID_BG_KEGG
+df10 <- Liver_DAVID_NoBG_KEGG
+df11 <- Liver_STRING_BG_KEGG
+df12 <- Liver_STRING_NoBG_KEGG
+
+df13 <- YangReAn_BFE_BG_GOBP
+df14 <- YangReAn_BFE_NoBG_GOBP
+df15 <- YangReAn_DAVID_BG_GOBP
+df16 <- YangReAn_DAVID_NoBG_GOBP
+df17 <- YangReAn_STRING_BG_GOBP
+df18 <- YangReAn_STRING_NoBG_GOBP
+df19 <- YangReAn_BFE_BG_KEGG
+df20 <- YangReAn_BFE_NoBG_KEGG
+df21 <- YangReAn_DAVID_BG_KEGG
+df22 <- YangReAn_DAVID_NoBG_KEGG
+df23 <- YangReAn_STRING_BG_KEGG
+df24 <- YangReAn_STRING_NoBG_KEGG
+
+df25 <- LinReAn_BFE_BG_GOBP
+df26 <- LinReAn_BFE_NoBG_GOBP
+df27 <- LinReAn_DAVID_BG_GOBP
+df28 <- LinReAn_DAVID_NoBG_GOBP
+df29 <- LinReAn_STRING_BG_GOBP
+df30 <- LinReAn_STRING_NoBG_GOBP
+df31 <- LinReAn_BFE_BG_KEGG
+df32 <- LinReAn_BFE_NoBG_KEGG
+df33 <- LinReAn_DAVID_BG_KEGG
+df34 <- LinReAn_DAVID_NoBG_KEGG
+df35 <- LinReAn_STRING_BG_KEGG
+df36 <- LinReAn_STRING_NoBG_KEGG
+
+write.xlsx(
+  list(
+    "Liver_BFE_BGcorr_GOBP"      = df1,
+    "Liver_BFE_noBG_GOBP"        = df2,
+    "Liver_DAVID_BGcorr_GOBP"    = df3,
+    "Liver_DAVID_noBG_GOBP"      = df4,
+    "Liver_STRING_BGcorr_GOBP"   = df5,
+    "Liver_STRING_noBG_GOBP"     = df6,
+    "Liver_BFE_BGcorr_KEGG"      = df7,
+    "Liver_BFE_noBG_KEGG"        = df8,
+    "Liver_DAVID_BGcorr_KEGG"    = df9,
+    "Liver_DAVID_noBG_KEGG"      = df10,
+    "Liver_STRING_BGcorr_KEGG"   = df11,
+    "Liver_STRING_noBG_KEGG"     = df12,
+
+    "Yang_BFE_BGcorr_GOBP"       = df13,
+    "Yang_BFE_noBG_GOBP"         = df14,
+    "Yang_DAVID_BGcorr_GOBP"     = df15,
+    "Yang_DAVID_noBG_GOBP"       = df16,
+    "Yang_STRING_BGcorr_GOBP"    = df17,
+    "Yang_STRING_noBG_GOBP"      = df18,
+    "Yang_BFE_BGcorr_KEGG"       = df19,
+    "Yang_BFE_noBG_KEGG"         = df20,
+    "Yang_DAVID_BGcorr_KEGG"     = df21,
+    "Yang_DAVID_noBG_KEGG"       = df22,
+    "Yang_STRING_BGcorr_KEGG"    = df23,
+    "Yang_STRING_noBG_KEGG"      = df24,
+
+    "Lin_BFE_BGcorr_GOBP"        = df25,
+    "Lin_BFE_noBG_GOBP"          = df26,
+    "Lin_DAVID_BGcorr_GOBP"      = df27,
+    "Lin_DAVID_noBG_GOBP"        = df28,
+    "Lin_STRING_BGcorr_GOBP"     = df29,
+    "Lin_STRING_noBG_GOBP"       = df30,
+    "Lin_BFE_BGcorr_KEGG"        = df31,
+    "Lin_BFE_noBG_KEGG"          = df32,
+    "Lin_DAVID_BGcorr_KEGG"      = df33,
+    "Lin_DAVID_noBG_KEGG"        = df34,
+    "Lin_STRING_BGcorr_KEGG"     = df35,
+    "Lin_STRING_noBG_KEGG"       = df36
+  ),
+  file = "SupTable4.xlsx"
+)
+
+
+#Data frames relating to Supplemental tables S5. Results from enrichment tools using Yang et al. and Lin et al.'s analysis and their published DEPs. 
+df13 <- Yang_BFE_BG_GOBP
+df14 <- Yang_BFE_NoBG_GOBP
+df15 <- Yang_DAVID_BG_GOBP
+df16 <- Yang_DAVID_NoBG_GOBP
+df17 <- Yang_STRING_BG_GOBP
+df18 <- Yang_STRING_NoBG_GOBP
+df19 <- Yang_BFE_BG_KEGG
+df20 <- Yang_BFE_NoBG_KEGG
+df21 <- Yang_DAVID_BG_KEGG
+df22 <- Yang_DAVID_NoBG_KEGG
+df23 <- Yang_STRING_BG_KEGG
+df24 <- Yang_STRING_NoBG_KEGG
+
+df25 <- Lin_BFE_BG_GOBP
+df26 <- Lin_BFE_NoBG_GOBP
+df27 <- Lin_DAVID_BG_GOBP
+df28 <- Lin_DAVID_NoBG_GOBP
+df29 <- Lin_STRING_BG_GOBP
+df30 <- Lin_STRING_NoBG_GOBP
+df31 <- Lin_BFE_BG_KEGG
+df32 <- Lin_BFE_NoBG_KEGG
+df33 <- Lin_DAVID_BG_KEGG
+df34 <- Lin_DAVID_NoBG_KEGG
+df35 <- Lin_STRING_BG_KEGG
+df36 <- Lin_STRING_NoBG_KEGG
+
+write.xlsx(
+  list(
+   
+    "Yang_BFE_BGcorr_GOBP"       = df13,
+    "Yang_BFE_noBG_GOBP"         = df14,
+    "Yang_DAVID_BGcorr_GOBP"     = df15,
+    "Yang_DAVID_noBG_GOBP"       = df16,
+    "Yang_STRING_BGcorr_GOBP"    = df17,
+    "Yang_STRING_noBG_GOBP"      = df18,
+    "Yang_BFE_BGcorr_KEGG"       = df19,
+    "Yang_BFE_noBG_KEGG"         = df20,
+    "Yang_DAVID_BGcorr_KEGG"     = df21,
+    "Yang_DAVID_noBG_KEGG"       = df22,
+    "Yang_STRING_BGcorr_KEGG"    = df23,
+    "Yang_STRING_noBG_KEGG"      = df24,
+
+    "Lin_BFE_BGcorr_GOBP"        = df25,
+    "Lin_BFE_noBG_GOBP"          = df26,
+    "Lin_DAVID_BGcorr_GOBP"      = df27,
+    "Lin_DAVID_noBG_GOBP"        = df28,
+    "Lin_STRING_BGcorr_GOBP"     = df29,
+    "Lin_STRING_noBG_GOBP"       = df30,
+    "Lin_BFE_BGcorr_KEGG"        = df31,
+    "Lin_BFE_noBG_KEGG"          = df32,
+    "Lin_DAVID_BGcorr_KEGG"      = df33,
+    "Lin_DAVID_noBG_KEGG"        = df34,
+    "Lin_STRING_BGcorr_KEGG"     = df35,
+    "Lin_STRING_noBG_KEGG"       = df36
+  ),
+  file = "SupTable5.xlsx"
+)
+```
